@@ -61,6 +61,7 @@
   .counts td, .counts th { padding: 4px 8px; }
   .error { color: var(--bad); white-space: pre-wrap; word-break: break-word; }
   input[type=search] { font: inherit; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); width: min(320px, 100%); }
+  input[type=date] { font: inherit; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
   #toast { position: fixed; right: 16px; bottom: 16px; max-width: 360px; padding: 10px 14px; border-radius: 8px; background: var(--text); color: var(--bg); opacity: 0; transform: translateY(8px); transition: .2s; pointer-events: none; }
   #toast.show { opacity: 1; transform: none; }
   .empty { padding: 12px 0; color: var(--muted); }
@@ -121,6 +122,15 @@
   /** Expanded run details, kept open across the automatic refreshes. */
   const openDetails = new Set();
 
+  function localToday() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  let garminSyncDate = localToday();
+
   function details(key, summary, ...content) {
     return h('details', { open: openDetails.has(key), ontoggle: (e) => e.target.open ? openDetails.add(key) : openDetails.delete(key) },
       h('summary', {}, summary), ...content);
@@ -171,11 +181,16 @@
     toast.t = setTimeout(() => el.classList.remove('show'), 3500);
   }
 
-  async function post(url) {
-    const res = await fetch(url, { method: 'POST', headers: { 'X-Admin-Request': '1' } });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || 'Request failed (' + res.status + ')');
-    return body;
+  async function post(url, body) {
+    const opts = { method: 'POST', headers: { 'X-Admin-Request': '1' } };
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    const res = await fetch(url, opts);
+    const resBody = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(resBody.error || 'Request failed (' + res.status + ')');
+    return resBody;
   }
 
   async function load() {
@@ -238,24 +253,43 @@
   }
 
   function renderJobs() {
-    for (const job of data.jobs) document.getElementById('job-' + job.id)?.replaceChildren(h('div', { class: 'job' },
-      h('div', { class: 'row' }, h('h3', {}, job.name), job.running ? pill('Running', 'warn') : pill('Idle', 'idle')),
-      h('div', { class: 'muted' }, job.description),
-      h('div', { class: 'small' },
-        'Schedule: ', job.scheduleEnabled ? h('code', {}, job.cron) : pill('Off', 'idle'),
-        job.scheduleEnabled ? ' (' + job.zone + ')' : ''),
-      job.scheduleEnabled ? h('div', { class: 'small' }, 'Next run: ' + fmt(job.nextRunAt) + ' (' + ago(job.nextRunAt) + ')') : null,
-      job.running && job.lockedUntil ? h('div', { class: 'small muted' }, 'Locked until ' + fmt(job.lockedUntil)) : null,
-      h('div', {}, h('button', {
-        class: 'primary', type: 'button', disabled: job.running,
-        onclick: async (e) => {
-          e.target.disabled = true;
-          try { await post(BASE + 'api/jobs/' + encodeURIComponent(job.id) + '/run'); toast(job.name + ' started'); }
-          catch (err) { toast(err.message); }
-          load();
-        },
-      }, 'Run now')),
-    ));
+    for (const job of data.jobs) {
+      const isGarmin = job.id === 'garmin-sync';
+      document.getElementById('job-' + job.id)?.replaceChildren(h('div', { class: 'job' },
+        h('div', { class: 'row' }, h('h3', {}, job.name), job.running ? pill('Running', 'warn') : pill('Idle', 'idle')),
+        h('div', { class: 'muted' }, job.description),
+        h('div', { class: 'small' },
+          'Schedule: ', job.scheduleEnabled ? h('code', {}, job.cron) : pill('Off', 'idle'),
+          job.scheduleEnabled ? ' (' + job.zone + ')' : ''),
+        job.scheduleEnabled ? h('div', { class: 'small' }, 'Next run: ' + fmt(job.nextRunAt) + ' (' + ago(job.nextRunAt) + ')') : null,
+        job.running && job.lockedUntil ? h('div', { class: 'small muted' }, 'Locked until ' + fmt(job.lockedUntil)) : null,
+        isGarmin ? h('div', { class: 'row', style: 'align-items: center; gap: 8px;' },
+          h('label', { for: 'garmin-sync-date', class: 'small muted' }, 'Date:'),
+          h('input', {
+            type: 'date',
+            id: 'garmin-sync-date',
+            value: garminSyncDate,
+            style: 'width: auto;',
+            onchange: (e) => { garminSyncDate = e.target.value; },
+            oninput: (e) => { garminSyncDate = e.target.value; },
+          }),
+        ) : null,
+        h('div', {}, h('button', {
+          class: 'primary', type: 'button', disabled: job.running,
+          onclick: async (e) => {
+            e.target.disabled = true;
+            try {
+              const body = isGarmin ? { date: garminSyncDate || localToday() } : undefined;
+              await post(BASE + 'api/jobs/' + encodeURIComponent(job.id) + '/run', body);
+              toast(job.name + ' started' + (isGarmin ? ' for ' + (garminSyncDate || localToday()) : ''));
+            } catch (err) {
+              toast(err.message);
+            }
+            load();
+          },
+        }, 'Run now')),
+      ));
+    }
   }
 
   function renderGarmin() {

@@ -47,6 +47,7 @@ data class PlanAnalytics(
     val averageCalorieDeficit: Double,
     val totalFatMassChangeGrams: Double,
     val averageDailyFatMassChangeGrams: Double,
+    /** Dry muscle-mass change in grams; retains the existing JSON field name for clients. */
     val totalMuscleMassChangeGrams: Double,
     val totalWeightChangeGrams: Double,
     val averageDailyWeightChangeGrams: Double,
@@ -172,7 +173,7 @@ class PlanAnalyticsService(
                 restingCalories = activeDayMs / DAY_MS * restingCalories,
             )
             fatChanges += BodyComposition.dailyFatMassChangeGrams(inputs)
-            muscleChanges += BodyComposition.dailyWetMuscleMassChangeGrams(inputs)
+            muscleChanges += BodyComposition.dailyDryMuscleMassChangeGrams(inputs)
             day = nextDay
         }
 

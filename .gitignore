@@ -3,5 +3,5 @@ build/
 .kotlin/
 .idea/
 *.iml
-.env
+.env*
 .DS_Store

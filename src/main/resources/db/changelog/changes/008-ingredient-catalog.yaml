@@ -1,13 +1,11 @@
-# Seeds the shared ingredient catalog from data/ingredient-catalog.csv.
-# Runs on every deploy: each CSV row is inserted, or updated in place when an ingredient with
-# that name exists. Rows missing from the CSV are never deleted. Values are per base_quantity
+# Seeds the shared ingredient catalog from data/ingredient-catalog.csv once.
+# The Sheets sync owns subsequent updates to matching names.
+# Rows missing from the CSV are never deleted. Values are per base_quantity
 # of unit, for raw/uncooked food; vitamin D is in IU and left 0 where reliable data is lacking.
 databaseChangeLog:
   - changeSet:
       id: 008-ingredient-catalog
       author: platito
-      runAlways: true
-      runOnChange: true
       changes:
         - loadUpdateData:
             tableName: ingredient

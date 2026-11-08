@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.util.concurrent.Executors
 
@@ -55,7 +56,7 @@ class AdminJobs(
         val scheduleEnabled: () -> Boolean,
         val cron: () -> String,
         val zone: () -> ZoneId,
-        val task: () -> Unit,
+        val task: (LocalDate?) -> Unit,
     )
 
     private val jobs = listOf(
@@ -68,10 +69,10 @@ class AdminJobs(
         ),
         Job(
             id = GARMIN_SYNC, name = "Garmin sync",
-            description = "Syncs today and yesterday from Garmin for every connected user.",
+            description = "Syncs Garmin for every connected user for a given day (defaults to current date).",
             lockName = "garminSync", lockAtMostFor = Duration.ofMinutes(25),
             scheduleEnabled = { properties.garmin.syncEnabled }, cron = { properties.garmin.syncCron }, zone = { ZoneId.of("UTC") },
-            task = { garminSync.syncAllUsers() },
+            task = { date -> garminSync.syncAllUsers(date ?: LocalDate.now(clock)) },
         ),
     ).associateBy { it.id }
 
@@ -96,14 +97,14 @@ class AdminJobs(
 
     fun exists(id: String) = id in jobs
 
-    fun start(id: String): StartResult {
+    fun start(id: String, date: LocalDate? = null): StartResult {
         val job = jobs.getValue(id)
         val lock = lockProvider.lock(LockConfiguration(clock.instant(), job.lockName, job.lockAtMostFor, Duration.ZERO)).orElse(null)
             ?: return StartResult.ALREADY_RUNNING
         executor.execute {
             try {
-                log.info("{} started from the admin page", job.name)
-                job.task()
+                log.info("{} started from the admin page{}", job.name, if (date != null) " for $date" else "")
+                job.task(date)
             } catch (e: Exception) {
                 log.error("{} started from the admin page failed: {}", job.name, e.message, e)
             } finally {
@@ -114,8 +115,11 @@ class AdminJobs(
     }
 
     /** Syncs one user's Garmin data in the background; the outcome lands on garmin_integration. */
-    fun startGarminSyncForUser(userId: Long) {
-        executor.execute { garminSync.syncUser(userId) }
+    fun startGarminSyncForUser(userId: Long, date: LocalDate? = null) {
+        executor.execute {
+            if (date != null) garminSync.syncUser(userId, date)
+            else garminSync.syncUser(userId, days = 30)
+        }
     }
 
     @PreDestroy

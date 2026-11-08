@@ -26,6 +26,11 @@ data class PlanInput(
 
 @Repository
 class PlanRepository(private val jdbc: JdbcClient) {
+    fun findCurrentRestingCalories(userId: Long, at: Instant): Double? =
+        jdbc.sql("SELECT resting_calories FROM plan WHERE user_id = :userId AND deleted_at IS NULL AND start_at <= :at ORDER BY start_at, id LIMIT 1")
+            .param("userId", userId).param("at", Timestamp.from(at))
+            .query(Double::class.java).optional().orElse(null)
+
     fun findByUser(userId: Long): List<PlanRecord> =
         jdbc.sql("SELECT * FROM plan WHERE user_id = :userId ORDER BY id")
             .param("userId", userId)

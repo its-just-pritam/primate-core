@@ -28,15 +28,15 @@ class BodyCompositionTest {
     }
 
     @Test
-    fun `muscle change matches the typescript model`() {
+    fun `dry muscle change returns dry protein mass change`() {
         val deficit = 2000 + 400 + 200.2 - 1900
         val dry = 0.65 * 150 - 0.34 * 80 - 0.0125 * 400 * (1 + 400.0 / 2000) - minOf(0.05 * deficit, 25.0)
-        assertEquals(dry * 5, BodyComposition.dailyWetMuscleMassChangeGrams(day), 1e-9)
+        assertEquals(dry, BodyComposition.dailyDryMuscleMassChangeGrams(day), 1e-9)
     }
 
     @Test
     fun `a day with no resting time yet stays finite`() {
-        val result = BodyComposition.dailyWetMuscleMassChangeGrams(day.copy(restingCalories = 0.0))
+        val result = BodyComposition.dailyDryMuscleMassChangeGrams(day.copy(restingCalories = 0.0))
         assertTrue(result.isFinite())
     }
 }

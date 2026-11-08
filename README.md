@@ -124,7 +124,7 @@ Set `BACKEND_URL=https://<service>.onrender.com` in the Next.js app's environmen
 
 - **Waking up:** the first request after 15 quiet minutes waits about a minute while the backend starts. The web app gives up on a backend call after 60 seconds (`lib/backend.ts` in the web app), so that first request can fail and work on a retry. Cached pages aren't affected; logging in, saving and uncached pages are.
 - **Syncing the Sheet:** open `/admin` (wait for it to wake up), then **Run now** on **Google Sheets sync**. The sync carries on in the background if you close the tab, and the backend stays up at least 15 minutes after your last request, which is plenty.
-- **Garmin:** the 30-minute job only runs while the backend is awake. Users' summaries for today and yesterday are refreshed when they read them anyway, and **Sync Garmin** on the admin page syncs one user by hand.
+- **Garmin:** the 30-minute job only runs while the backend is awake. Users' summaries for today and yesterday are refreshed when they read them anyway, and **Sync Garmin** on an admin user row backfills that user's last 30 days.
 - **Releasing changes:** every push to the deployed branch builds and deploys again. Migrations run on startup.
 - **Logs:** the service's **Logs** tab in Render. Each Sheets sync logs a summary line, and failed runs show their error on the admin page.
 - **Free hours:** Render gives 750 free instance hours a month per workspace. A backend that sleeps most of the day uses far fewer.
@@ -140,7 +140,7 @@ Switch the instance type to **Starter** when cold starts get in users' way or yo
 The page has three tabs. The open tab is kept in the URL (`/admin#sheets`, `#garmin`, `#users`), and each tab's label flags a running job or a failure so it shows from any tab.
 
 - **Google Sheets:** the Sheets job with its schedule, next run and whether it is running, plus **Run now**, and the last 20 sync runs with status, duration, totals, per-table counts and warnings.
-- **Garmin:** the Garmin job with **Run now**, then sync health: connected users, last sync outcome counts, and users whose last sync failed with the error and a **Sync Garmin** button for that user.
+- **Garmin:** the Garmin job with **Run now**, then sync health: connected users, last sync outcome counts, and users whose last sync failed with the error and a **Sync Garmin** button that backfills 30 days for that user.
 - **Users:** searchable list with onboarding progress, meal and workout counts, time zone and Garmin status (up to 1,000 users).
 
 **Run now** takes the same ShedLock lock as the scheduled run, so the two never overlap on any instance; it works even when the schedule is off and runs in the background.
@@ -153,8 +153,8 @@ Security: the login is HTTP Basic, so serve the backend over HTTPS anywhere but 
 | --- | --- |
 | `GET /admin` | The page |
 | `GET /admin/api/overview` | Jobs, last 20 Sheets runs, users, as JSON |
-| `POST /admin/api/jobs/{id}/run` | Start a job (`sheets-sync` or `garmin-sync`): 202, or 409 if it is already running |
-| `POST /admin/api/users/{id}/garmin-sync` | Sync one user's Garmin data: 202, 404 for an unknown user, 409 if Garmin isn't connected |
+| `POST /admin/api/jobs/{id}/run` | Start a job (`sheets-sync` or `garmin-sync`): 202, or 409 if already running. Optional `date` or `timestamp` (defaults to current date for `garmin-sync`) |
+| `POST /admin/api/users/{id}/garmin-sync` | Sync one user's Garmin data: 202, 404 for an unknown user, 409 if Garmin isn't connected. Optional `date` or `timestamp` |
 
 ## Tests
 
@@ -191,7 +191,7 @@ Liquibase changelogs live in `src/main/resources/db/changelog/`. Add a new numbe
 | `shedlock` | Keeps each scheduled job to one instance at a time |
 | `sheets_sync_run` | One row per Google Sheets sync: status, per-table counts, warnings, error |
 
-The ingredient catalog has no UI. It is seeded from `ingredient-catalog.csv` on every deploy, and the Sheets sync adds the Sheet's ingredients. For an ingredient in both, the value written last wins: the Sheet's after a sync, the CSV's after a deploy.
+The ingredient catalog has no UI. It is seeded from `ingredient-catalog.csv` when the database is initialized. The Sheets sync inserts or replaces ingredients by name, so Sheet values remain authoritative after syncs and later deploys.
 
 ## Garmin sync
 

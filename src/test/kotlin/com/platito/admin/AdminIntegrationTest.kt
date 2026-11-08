@@ -12,6 +12,7 @@ import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Primary
+import org.springframework.http.MediaType
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.mock.web.MockHttpServletRequest
 import org.springframework.mock.web.MockHttpServletResponse
@@ -115,6 +116,27 @@ class AdminIntegrationTest {
                 .query { rs, _ -> rs.getString(1) to rs.getString(2) }.optional().orElse(null)
         }
         assertEquals("FAILED" to "The Sheet has no User tab.", run)
+    }
+
+    @Test
+    fun `run now starts garmin sync with optional date or timestamp`() {
+        val (status1, body1) = json(
+            post("/admin/api/jobs/garmin-sync/run")
+                .admin()
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"date":"2026-11-08"}""")
+        )
+        assertEquals(202, status1)
+        assertEquals("started", body1["status"].asText())
+
+        val (badStatus, badBody) = json(
+            post("/admin/api/jobs/garmin-sync/run")
+                .admin()
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"date":"not-a-valid-date"}""")
+        )
+        assertEquals(400, badStatus)
+        assertEquals("Invalid date or timestamp: not-a-valid-date", badBody["error"].asText())
     }
 
     @Test

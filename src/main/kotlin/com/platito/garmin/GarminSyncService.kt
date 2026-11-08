@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.platito.common.conflict
 import com.platito.common.parseZone
 import com.platito.config.AppProperties
+import com.platito.plan.PlanRepository
 import com.platito.user.UserRecord
 import com.platito.user.UserRepository
 import com.platito.workout.GarminWorkout
@@ -45,6 +46,7 @@ class GarminSyncService(
     private val transactions: TransactionTemplate,
     private val backfillExecutor: ExecutorService,
     private val clock: Clock,
+    private val plans: PlanRepository,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val userLocks = ConcurrentHashMap<Long, ReentrantLock>()
@@ -75,7 +77,8 @@ class GarminSyncService(
         val apiKey = apiKey(user)
         return userLocks.computeIfAbsent(user.id) { ReentrantLock() }.withLock {
             val activities = api.activitiesForDate(tokens.token(user.id, apiKey), date)
-            val desired = activities.mapNotNull { toWorkout(it, zone) }.associateBy { it.externalId }.values
+            val restingCaloriesPerDay = plans.findCurrentRestingCalories(user.id, clock.instant()) ?: 0.0
+            val desired = activities.mapNotNull { toWorkout(it, zone, restingCaloriesPerDay) }.associateBy { it.externalId }.values
             val desiredIds = desired.map { it.externalId }.toSet()
             transactions.execute {
                 val existing = workouts.findGarminExternalIds(user.id, desiredIds)
@@ -95,11 +98,36 @@ class GarminSyncService(
     fun sleepSummaries(user: UserRecord, from: LocalDate, to: LocalDate): List<JsonNode> =
         metrics(user, GarminMetricKind.SLEEP, from, to)
 
-    /** Syncs today and yesterday for every connected user. */
-    fun syncAllUsers() {
+    /** Syncs Garmin for every connected user: either [date] or the default today and yesterday. */
+    fun syncAllUsers(date: LocalDate? = null) {
         val userIds = repository.connectedUserIds()
-        log.info("Garmin sync starting for {} connected user(s)", userIds.size)
-        userIds.forEach { syncUser(it) }
+        log.info("Garmin sync starting for {} connected user(s){}", userIds.size, if (date != null) " on $date" else "")
+        if (date != null) {
+            userIds.forEach { syncUser(it, date) }
+        } else {
+            userIds.forEach { syncUser(it) }
+        }
+    }
+
+    /** Syncs [date] for one user, recording the outcome. Never throws. */
+    fun syncUser(userId: Long, date: LocalDate) {
+        val user = users.findById(userId) ?: return
+        if (repository.findIntegration(userId) == null) return
+        repository.markSyncStarted(userId)
+        try {
+            val zone = zoneOf(user)
+            syncActivities(user, date, zone)
+            metrics(user, GarminMetricKind.DAILY_SUMMARY, date, date, forceRefresh = true)
+            metrics(user, GarminMetricKind.SLEEP, date, date, forceRefresh = true)
+            if (repository.findIntegration(userId)?.deviceName == null) {
+                api.deviceName(tokens.token(userId, apiKey(user)))?.let { repository.updateDeviceName(userId, it) }
+            }
+            repository.markSyncFinished(userId, success = true, error = null)
+            log.info("Garmin sync completed for user {} on {}", userId, date)
+        } catch (e: Exception) {
+            log.warn("Garmin sync failed for user {} on {}: {}", userId, date, e.message)
+            repository.markSyncFinished(userId, success = false, error = e.message?.take(500))
+        }
     }
 
     /** Syncs the last [days] days for one user, recording the outcome. Never throws. */
@@ -130,12 +158,18 @@ class GarminSyncService(
      * yesterday, still changing on Garmin's side) older than the freshness window. A failed
      * refresh falls back to the stored payload.
      */
-    private fun metrics(user: UserRecord, kind: GarminMetricKind, from: LocalDate, to: LocalDate): List<JsonNode> {
+    private fun metrics(
+        user: UserRecord,
+        kind: GarminMetricKind,
+        from: LocalDate,
+        to: LocalDate,
+        forceRefresh: Boolean = false,
+    ): List<JsonNode> {
         val stored = repository.findMetrics(user.id, kind, from, to).associateBy { it.date }
         val dates = from.datesUntil(to.plusDays(1)).toList()
         val recentFrom = LocalDate.now(clock.withZone(zoneOf(user))).minusDays(1)
         val staleBefore = clock.instant().minus(properties.garmin.summaryFreshness)
-        val toFetch = dates.filter { date ->
+        val toFetch = if (forceRefresh) dates else dates.filter { date ->
             val existing = stored[date]
             existing == null || (!date.isBefore(recentFrom) && existing.fetchedAt.isBefore(staleBefore))
         }
@@ -170,13 +204,31 @@ class GarminSyncService(
         else -> emptyList()
     }
 
-    private fun toWorkout(activity: JsonNode, zone: ZoneId): GarminWorkout? {
+    private fun toWorkout(activity: JsonNode, zone: ZoneId, restingCaloriesPerDay: Double): GarminWorkout? {
         val name = listOf("activityName", "name").firstNotNullOfOrNull { activity.path(it).textValue()?.trim()?.takeIf(String::isNotEmpty) }
             ?: return null
-        val calories = listOf("calories", "caloriesBurned", "caloriesBurnt")
+        // Prefer explicit active calories. Generic activity calories may include resting burn,
+        // so subtract the user's plan resting rate for the activity duration when available.
+        val activeCalories = listOf("activeCalories", "activeKilocalories", "caloriesActive", "burnedActive")
             .map { activity.path(it) }.firstOrNull { !it.isMissingNode && !it.isNull }
             ?.let { if (it.isNumber) it.asDouble() else it.asText().toDoubleOrNull() }
-            ?.takeIf { it.isFinite() && it >= 0 } ?: return null
+            ?.takeIf { it.isFinite() && it >= 0 }
+        val totalCalories = listOf("calories", "caloriesBurned", "caloriesBurnt")
+            .map { activity.path(it) }.firstOrNull { !it.isMissingNode && !it.isNull }
+            ?.let { if (it.isNumber) it.asDouble() else it.asText().toDoubleOrNull() }
+            ?.takeIf { it.isFinite() && it >= 0 }
+        val bmrCalories = activity.path("bmrCalories")
+            .takeUnless { it.isMissingNode || it.isNull }
+            ?.let { if (it.isNumber) it.asDouble() else it.asText().toDoubleOrNull() }
+            ?.takeIf { it.isFinite() && it >= 0 }
+        val durationSeconds = listOf("durationInSeconds", "duration")
+            .map { activity.path(it) }.firstOrNull { !it.isMissingNode && !it.isNull }
+            ?.let { if (it.isNumber) it.asDouble() else it.asText().toDoubleOrNull() }
+            ?.takeIf { it.isFinite() && it > 0 }
+        val estimatedBmrCalories = if (restingCaloriesPerDay.isFinite() && restingCaloriesPerDay > 0 && durationSeconds != null)
+            restingCaloriesPerDay * durationSeconds / 86_400.0 else 0.0
+        val restingCalories = bmrCalories ?: estimatedBmrCalories
+        val calories = activeCalories ?: totalCalories?.let { (it - restingCalories).coerceAtLeast(0.0) } ?: return null
         val performedAt = startInstant(activity, zone) ?: return null
         val externalId = activity.get("activityId")?.takeIf { it.isNumber || it.isTextual }?.asText()?.takeIf(String::isNotEmpty)
             ?: fallbackId(name, performedAt, calories)

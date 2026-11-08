@@ -1,0 +1,34 @@
+# Seeds the shared ingredient catalog from data/ingredient-catalog.csv.
+# Runs on every deploy: each CSV row is inserted, or updated in place when an ingredient with
+# that name exists. Rows missing from the CSV are never deleted. Values are per base_quantity
+# of unit, for raw/uncooked food; vitamin D is in IU and left 0 where reliable data is lacking.
+databaseChangeLog:
+  - changeSet:
+      id: 008-ingredient-catalog
+      author: platito
+      runAlways: true
+      runOnChange: true
+      changes:
+        - loadUpdateData:
+            tableName: ingredient
+            file: ../data/ingredient-catalog.csv
+            relativeToChangelogFile: true
+            primaryKey: name
+            separator: ","
+            columns:
+              - column: { name: name, type: STRING }
+              - column: { name: base_quantity, type: NUMERIC }
+              - column: { name: unit, type: STRING }
+              - column: { name: calories, type: NUMERIC }
+              - column: { name: protein, type: NUMERIC }
+              - column: { name: carbs, type: NUMERIC }
+              - column: { name: fats, type: NUMERIC }
+              - column: { name: calcium, type: NUMERIC }
+              - column: { name: iron, type: NUMERIC }
+              - column: { name: potassium, type: NUMERIC }
+              - column: { name: sodium, type: NUMERIC }
+              - column: { name: vitamin_c, type: NUMERIC }
+              - column: { name: vitamin_b12, type: NUMERIC }
+              - column: { name: vitamin_d, type: NUMERIC }
+      rollback:
+        - empty

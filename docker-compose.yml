@@ -1,0 +1,50 @@
+# Local stack: Postgres plus the backend. Every setting can be overridden from the shell or from
+# primate-core/.env (read automatically by docker compose); otherwise the default after ":-" is used.
+# The two secrets have no safe default, so compose refuses to start the backend without them.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-platito}
+      POSTGRES_USER: ${POSTGRES_USER:-platito}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-platito}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET (same value as the web app)}
+      GARMIN_API_KEY_ENCRYPTION_KEY: ${GARMIN_API_KEY_ENCRYPTION_KEY:?Set GARMIN_API_KEY_ENCRYPTION_KEY (base64 of 32 random bytes)}
+      DATABASE_URL: ${DATABASE_URL:-jdbc:postgresql://postgres:5432/${POSTGRES_DB:-platito}}
+      DATABASE_USERNAME: ${DATABASE_USERNAME:-${POSTGRES_USER:-platito}}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-${POSTGRES_PASSWORD:-platito}}
+      DATABASE_SCHEMA: ${DATABASE_SCHEMA:-public}
+      DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-10}
+      GARMIN_SYNC_ENABLED: ${GARMIN_SYNC_ENABLED:-true}
+      GARMIN_SYNC_CRON: ${GARMIN_SYNC_CRON:-0 */30 * * * *}
+      GARMIN_API_BASE_URL: ${GARMIN_API_BASE_URL:-https://personal.connectapi.garmin.com}
+      SHEETS_SYNC_ENABLED: ${SHEETS_SYNC_ENABLED:-false}
+      SHEETS_SYNC_CRON: ${SHEETS_SYNC_CRON:-0 0 12 * * *}
+      SHEETS_SYNC_ZONE: ${SHEETS_SYNC_ZONE:-UTC}
+      GOOGLE_SHEET_ID: ${GOOGLE_SHEET_ID:-}
+      GOOGLE_SERVICE_ACCOUNT_EMAIL: ${GOOGLE_SERVICE_ACCOUNT_EMAIL:-}
+      GOOGLE_PRIVATE_KEY: ${GOOGLE_PRIVATE_KEY:-}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      PORT: ${BACKEND_PORT:-8080}
+    ports:
+      - "${BACKEND_PORT:-8080}:${BACKEND_PORT:-8080}"
+
+volumes:
+  postgres-data:

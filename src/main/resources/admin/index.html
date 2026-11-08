@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Platito admin</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --text: #1b1f24; --muted: #5f6b7a; --border: #e1e5ea;
+    --accent: #2f6fed; --accent-text: #ffffff; --ok: #1a7f4b; --ok-bg: #e3f5eb; --bad: #b42318; --bad-bg: #fdecea;
+    --warn: #8a5a00; --warn-bg: #fff4dc; --idle: #5f6b7a; --idle-bg: #eef1f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216; --surface: #171b21; --text: #e6e9ee; --muted: #9aa5b4; --border: #2a313b;
+      --accent: #5b8cff; --accent-text: #0f1216; --ok: #5ad19a; --ok-bg: #12301f; --bad: #ff8a80; --bad-bg: #3a1714;
+      --warn: #ffcf66; --warn-bg: #3a2c0c; --idle: #9aa5b4; --idle-bg: #222831;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 16px; margin: 0; }
+  header .spacer { flex: 1; }
+  .tabs { display: flex; gap: 4px; }
+  .tab { border: 0; background: none; color: var(--muted); padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px; }
+  .tab:hover:not(:disabled) { color: var(--text); background: var(--idle-bg); }
+  .tab[aria-selected=true] { color: var(--text); background: var(--idle-bg); font-weight: 600; }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .panel { display: grid; gap: 24px; }
+  .panel[hidden] { display: none; }
+  section { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; min-width: 0; }
+  section > h2 { font-size: 15px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  .jobs { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  .job { border: 1px solid var(--border); border-radius: 8px; padding: 14px; display: grid; gap: 8px; }
+  .job .row { display: flex; align-items: center; gap: 8px; }
+  .job h3 { margin: 0; font-size: 14px; flex: 1; }
+  .stats { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .stat { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; min-width: 110px; }
+  .stat b { display: block; font-size: 18px; }
+  button { font: inherit; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button:disabled { opacity: .5; cursor: default; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .pill.ok { color: var(--ok); background: var(--ok-bg); }
+  .pill.bad { color: var(--bad); background: var(--bad-bg); }
+  .pill.warn { color: var(--warn); background: var(--warn-bg); }
+  .pill.idle { color: var(--idle); background: var(--idle-bg); }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: 0; }
+  details summary { cursor: pointer; color: var(--accent); }
+  details ul { margin: 8px 0 0; padding-left: 18px; max-height: 240px; overflow: auto; }
+  .counts td, .counts th { padding: 4px 8px; }
+  .error { color: var(--bad); white-space: pre-wrap; word-break: break-word; }
+  input[type=search] { font: inherit; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); width: min(320px, 100%); }
+  #toast { position: fixed; right: 16px; bottom: 16px; max-width: 360px; padding: 10px 14px; border-radius: 8px; background: var(--text); color: var(--bg); opacity: 0; transform: translateY(8px); transition: .2s; pointer-events: none; }
+  #toast.show { opacity: 1; transform: none; }
+  .empty { padding: 12px 0; color: var(--muted); }
+  @media (max-width: 640px) {
+    header, main { padding-left: 16px; padding-right: 16px; }
+    .tabs { order: 3; width: 100%; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Platito admin</h1>
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab" type="button" role="tab" id="tab-sheets" aria-controls="panel-sheets" data-tab="sheets">Google Sheets <span id="badge-sheets"></span></button>
+    <button class="tab" type="button" role="tab" id="tab-garmin" aria-controls="panel-garmin" data-tab="garmin">Garmin <span id="badge-garmin"></span></button>
+    <button class="tab" type="button" role="tab" id="tab-users" aria-controls="panel-users" data-tab="users">Users <span id="badge-users"></span></button>
+  </nav>
+  <span class="spacer"></span>
+  <span id="updated" class="muted small"></span>
+  <button id="refresh" type="button">Refresh</button>
+</header>
+<main>
+  <div class="panel" role="tabpanel" id="panel-sheets" aria-labelledby="tab-sheets">
+    <section>
+      <h2>Job</h2>
+      <div id="job-sheets-sync" class="jobs"></div>
+    </section>
+    <section>
+      <h2>Sync runs <span class="muted small">(last 20)</span></h2>
+      <div id="runs"></div>
+    </section>
+  </div>
+  <div class="panel" role="tabpanel" id="panel-garmin" aria-labelledby="tab-garmin" hidden>
+    <section>
+      <h2>Job</h2>
+      <div id="job-garmin-sync" class="jobs"></div>
+    </section>
+    <section>
+      <h2>Sync health</h2>
+      <div id="garmin"></div>
+    </section>
+  </div>
+  <div class="panel" role="tabpanel" id="panel-users" aria-labelledby="tab-users" hidden>
+    <section>
+      <h2>Users <span id="user-count" class="muted small"></span></h2>
+      <input id="search" type="search" placeholder="Search name or email" aria-label="Search users">
+      <div id="users" class="table-wrap" style="margin-top:12px"></div>
+    </section>
+  </div>
+</main>
+<div id="toast" role="status" aria-live="polite"></div>
+<script>
+  const TABLES = ['app_user', 'ingredient', 'recipe', 'recipe_ingredient', 'packaged_food', 'meal_log', 'workout', 'plan'];
+  /** The page is served at /admin or /admin/; API paths hang off it. */
+  const BASE = location.pathname.replace(/\/?$/, '/');
+  let data = null;
+  let timer = null;
+  /** Expanded run details, kept open across the automatic refreshes. */
+  const openDetails = new Set();
+
+  function details(key, summary, ...content) {
+    return h('details', { open: openDetails.has(key), ontoggle: (e) => e.target.open ? openDetails.add(key) : openDetails.delete(key) },
+      h('summary', {}, summary), ...content);
+  }
+
+  /** Builds an element; strings become text nodes, so nothing from the server is parsed as HTML. */
+  function h(tag, attrs, ...children) {
+    const el = document.createElement(tag);
+    for (const [key, value] of Object.entries(attrs || {})) {
+      if (value == null || value === false) continue;
+      if (key.startsWith('on')) el.addEventListener(key.slice(2), value);
+      else if (key === 'class') el.className = value;
+      else el.setAttribute(key, value === true ? '' : value);
+    }
+    for (const child of children.flat()) {
+      if (child == null || child === false) continue;
+      el.append(child instanceof Node ? child : document.createTextNode(String(child)));
+    }
+    return el;
+  }
+
+  const fmt = (iso) => iso ? new Date(iso).toLocaleString() : '—';
+  function ago(iso) {
+    if (!iso) return '—';
+    const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+    if (s < 0) return 'in ' + span(-s);
+    return span(s) + ' ago';
+  }
+  function span(s) {
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.round(s / 60) + 'm';
+    if (s < 86400) return Math.round(s / 3600) + 'h';
+    return Math.round(s / 86400) + 'd';
+  }
+  function duration(a, b) {
+    if (!a || !b) return '—';
+    const ms = new Date(b) - new Date(a);
+    return ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(1) + ' s';
+  }
+  const pill = (text, kind) => h('span', { class: 'pill ' + kind }, text);
+  const statusPill = (status) => status === 'SUCCESS' ? pill('Success', 'ok') : status === 'FAILED' ? pill('Failed', 'bad') : pill('Running', 'warn');
+
+  function toast(message) {
+    const el = document.getElementById('toast');
+    el.textContent = message;
+    el.classList.add('show');
+    clearTimeout(toast.t);
+    toast.t = setTimeout(() => el.classList.remove('show'), 3500);
+  }
+
+  async function post(url) {
+    const res = await fetch(url, { method: 'POST', headers: { 'X-Admin-Request': '1' } });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || 'Request failed (' + res.status + ')');
+    return body;
+  }
+
+  async function load() {
+    try {
+      const res = await fetch(BASE + 'api/overview', { cache: 'no-store' });
+      if (!res.ok) throw new Error('Loading failed (' + res.status + ')');
+      data = await res.json();
+      render();
+      document.getElementById('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    } catch (e) {
+      toast(e.message);
+    }
+    schedule();
+  }
+
+  /** Polls every 5 s while something is running, otherwise every minute. */
+  function schedule() {
+    clearTimeout(timer);
+    const busy = data && (data.jobs.some((j) => j.running) || data.sheetsRuns.some((r) => r.status === 'RUNNING') ||
+      data.users.some((u) => u.garmin && isSyncing(u.garmin)));
+    timer = setTimeout(load, busy ? 5000 : 60000);
+  }
+
+  const isSyncing = (g) => g.lastSyncStartedAt && (!g.lastSyncFinishedAt || g.lastSyncStartedAt > g.lastSyncFinishedAt);
+
+  const TABS = ['sheets', 'garmin', 'users'];
+
+  /** Shows one tab; the choice lives in the URL hash, so it survives a reload and can be linked to. */
+  function showTab(name, focus) {
+    if (!TABS.includes(name)) name = TABS[0];
+    for (const tab of TABS) {
+      const button = document.getElementById('tab-' + tab);
+      const selected = tab === name;
+      button.setAttribute('aria-selected', selected);
+      button.tabIndex = selected ? 0 : -1;
+      document.getElementById('panel-' + tab).hidden = !selected;
+      if (selected && focus) button.focus();
+    }
+    if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+  }
+
+  function render() {
+    renderJobs();
+    renderGarmin();
+    renderRuns();
+    renderUsers();
+    renderBadges();
+  }
+
+  /** Flags on the tabs, so a running job or a failure shows from any tab. */
+  function renderBadges() {
+    const job = (id) => data.jobs.find((j) => j.id === id);
+    const lastRun = data.sheetsRuns[0];
+    const failedGarmin = data.users.filter((u) => u.garmin && u.garmin.lastSyncStatus === 'FAILED').length;
+    const badge = (id, content) => document.getElementById('badge-' + id).replaceChildren(...(content ? [content] : []));
+    badge('sheets', job('sheets-sync')?.running || lastRun?.status === 'RUNNING' ? pill('Running', 'warn')
+      : lastRun?.status === 'FAILED' ? pill('Failed', 'bad') : null);
+    badge('garmin', job('garmin-sync')?.running ? pill('Running', 'warn') : failedGarmin ? pill(failedGarmin + ' failed', 'bad') : null);
+    badge('users', pill(data.users.length, 'idle'));
+  }
+
+  function renderJobs() {
+    for (const job of data.jobs) document.getElementById('job-' + job.id)?.replaceChildren(h('div', { class: 'job' },
+      h('div', { class: 'row' }, h('h3', {}, job.name), job.running ? pill('Running', 'warn') : pill('Idle', 'idle')),
+      h('div', { class: 'muted' }, job.description),
+      h('div', { class: 'small' },
+        'Schedule: ', job.scheduleEnabled ? h('code', {}, job.cron) : pill('Off', 'idle'),
+        job.scheduleEnabled ? ' (' + job.zone + ')' : ''),
+      job.scheduleEnabled ? h('div', { class: 'small' }, 'Next run: ' + fmt(job.nextRunAt) + ' (' + ago(job.nextRunAt) + ')') : null,
+      job.running && job.lockedUntil ? h('div', { class: 'small muted' }, 'Locked until ' + fmt(job.lockedUntil)) : null,
+      h('div', {}, h('button', {
+        class: 'primary', type: 'button', disabled: job.running,
+        onclick: async (e) => {
+          e.target.disabled = true;
+          try { await post(BASE + 'api/jobs/' + encodeURIComponent(job.id) + '/run'); toast(job.name + ' started'); }
+          catch (err) { toast(err.message); }
+          load();
+        },
+      }, 'Run now')),
+    ));
+  }
+
+  function renderGarmin() {
+    const connected = data.users.filter((u) => u.garmin);
+    const failed = connected.filter((u) => u.garmin.lastSyncStatus === 'FAILED');
+    const never = connected.filter((u) => !u.garmin.lastSyncStatus);
+    const ok = connected.filter((u) => u.garmin.lastSyncStatus === 'SUCCESS');
+    const stat = (label, value) => h('div', { class: 'stat' }, h('b', {}, value), h('span', { class: 'muted small' }, label));
+    const container = document.getElementById('garmin');
+    container.replaceChildren(
+      h('div', { class: 'stats' }, stat('Connected', connected.length), stat('Last sync OK', ok.length), stat('Last sync failed', failed.length), stat('Never synced', never.length)),
+      failed.length === 0
+        ? h('div', { class: 'empty' }, connected.length ? 'No failing Garmin syncs.' : 'No users have connected Garmin.')
+        : h('div', { class: 'table-wrap' }, h('table', {},
+            h('thead', {}, h('tr', {}, h('th', {}, 'User'), h('th', {}, 'Last attempt'), h('th', {}, 'Error'), h('th', {}, ''))),
+            h('tbody', {}, failed.map((u) => h('tr', {},
+              h('td', {}, u.name, h('div', { class: 'muted small' }, u.email)),
+              h('td', {}, fmt(u.garmin.lastSyncFinishedAt), h('div', { class: 'muted small' }, ago(u.garmin.lastSyncFinishedAt))),
+              h('td', { class: 'error' }, u.garmin.lastSyncError || '—'),
+              h('td', {}, garminButton(u)),
+            ))),
+          )),
+    );
+  }
+
+  function garminButton(user) {
+    return h('button', {
+      type: 'button', disabled: isSyncing(user.garmin),
+      onclick: async (e) => {
+        e.target.disabled = true;
+        try { await post(BASE + 'api/users/' + user.id + '/garmin-sync'); toast('Garmin sync started for ' + user.email); }
+        catch (err) { toast(err.message); }
+        setTimeout(load, 1500);
+      },
+    }, isSyncing(user.garmin) ? 'Syncing…' : 'Sync Garmin');
+  }
+
+  function totals(counts) {
+    const sum = { inserted: 0, updated: 0, unchanged: 0, skipped: 0 };
+    for (const c of Object.values(counts || {})) for (const k of Object.keys(sum)) sum[k] += c[k] || 0;
+    return sum;
+  }
+
+  function renderRuns() {
+    const container = document.getElementById('runs');
+    if (!data.sheetsRuns.length) {
+      container.replaceChildren(h('div', { class: 'empty' }, 'The Sheets sync has not run yet.'));
+      return;
+    }
+    container.replaceChildren(h('div', { class: 'table-wrap' }, h('table', {},
+      h('thead', {}, h('tr', {},
+        h('th', {}, 'Started'), h('th', {}, 'Status'), h('th', { class: 'num' }, 'Duration'),
+        h('th', { class: 'num' }, 'Inserted'), h('th', { class: 'num' }, 'Updated'), h('th', { class: 'num' }, 'Unchanged'),
+        h('th', { class: 'num' }, 'Skipped'), h('th', {}, 'Details'))),
+      h('tbody', {}, data.sheetsRuns.map((run) => {
+        const t = totals(run.counts);
+        const warnings = run.warnings || [];
+        return h('tr', {},
+          h('td', {}, fmt(run.startedAt), h('div', { class: 'muted small' }, ago(run.startedAt))),
+          h('td', {}, statusPill(run.status)),
+          h('td', { class: 'num' }, duration(run.startedAt, run.finishedAt)),
+          h('td', { class: 'num' }, run.counts ? t.inserted : '—'),
+          h('td', { class: 'num' }, run.counts ? t.updated : '—'),
+          h('td', { class: 'num' }, run.counts ? t.unchanged : '—'),
+          h('td', { class: 'num' }, run.counts ? t.skipped : '—'),
+          h('td', {},
+            run.error ? h('div', { class: 'error' }, run.error) : null,
+            run.counts ? details('counts-' + run.id, 'Per table', countsTable(run.counts)) : null,
+            warnings.length ? details('warnings-' + run.id, warnings.length + ' warning' + (warnings.length === 1 ? '' : 's'),
+              h('ul', { class: 'small' }, warnings.map((w) => h('li', {}, w)))) : null,
+          ),
+        );
+      })),
+    )));
+  }
+
+  function countsTable(counts) {
+    return h('table', { class: 'counts small' },
+      h('thead', {}, h('tr', {}, h('th', {}, 'Table'), h('th', { class: 'num' }, 'Ins'), h('th', { class: 'num' }, 'Upd'), h('th', { class: 'num' }, 'Same'), h('th', { class: 'num' }, 'Skip'))),
+      h('tbody', {}, TABLES.filter((t) => counts[t]).map((t) => h('tr', {},
+        h('td', {}, h('code', {}, t)),
+        ...['inserted', 'updated', 'unchanged', 'skipped'].map((k) => h('td', { class: 'num' }, counts[t][k] || 0)),
+      ))),
+    );
+  }
+
+  function renderUsers() {
+    const query = document.getElementById('search').value.trim().toLowerCase();
+    const users = data.users.filter((u) => !query || u.name.toLowerCase().includes(query) || u.email.toLowerCase().includes(query));
+    document.getElementById('user-count').textContent = '(' + (query ? users.length + ' of ' : '') + data.users.length + ')';
+    const container = document.getElementById('users');
+    if (!users.length) {
+      container.replaceChildren(h('div', { class: 'empty' }, query ? 'No users match.' : 'No users yet.'));
+      return;
+    }
+    container.replaceChildren(h('table', {},
+      h('thead', {}, h('tr', {},
+        h('th', {}, 'User'), h('th', {}, 'Joined'), h('th', {}, 'Onboarding'), h('th', { class: 'num' }, 'Meals'),
+        h('th', { class: 'num' }, 'Workouts'), h('th', {}, 'Time zone'), h('th', {}, 'Garmin'), h('th', {}, ''))),
+      h('tbody', {}, users.map((u) => h('tr', {},
+        h('td', {}, u.name, h('div', { class: 'muted small' }, u.email)),
+        h('td', {}, fmt(u.createdAt)),
+        h('td', {}, u.onboardingStep >= 5 ? pill('Done', 'ok') : pill(u.onboardingStep + ' / 5', 'idle')),
+        h('td', { class: 'num' }, u.meals),
+        h('td', { class: 'num' }, u.workouts),
+        h('td', {}, u.timeZone),
+        h('td', {}, u.garmin
+          ? [isSyncing(u.garmin) ? pill('Syncing', 'warn') : u.garmin.lastSyncStatus ? statusPill(u.garmin.lastSyncStatus) : pill('Never synced', 'idle'),
+             h('div', { class: 'muted small' }, (u.garmin.deviceName ? u.garmin.deviceName + ' · ' : '') + 'last ' + ago(u.garmin.lastSyncFinishedAt))]
+          : h('span', { class: 'muted' }, 'Not connected')),
+        h('td', {}, u.garmin ? garminButton(u) : null),
+      ))),
+    ));
+  }
+
+  for (const tab of TABS) document.getElementById('tab-' + tab).addEventListener('click', () => showTab(tab));
+  document.querySelector('.tabs').addEventListener('keydown', (e) => {
+    const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+    if (!step) return;
+    const current = TABS.indexOf(location.hash.slice(1));
+    showTab(TABS[(Math.max(current, 0) + step + TABS.length) % TABS.length], true);
+    e.preventDefault();
+  });
+  window.addEventListener('hashchange', () => showTab(location.hash.slice(1)));
+  showTab(location.hash.slice(1));
+  document.getElementById('refresh').addEventListener('click', load);
+  document.getElementById('search').addEventListener('input', () => data && renderUsers());
+  load();
+</script>
+</body>
+</html>

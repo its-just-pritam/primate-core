@@ -1,0 +1,55 @@
+spring:
+  application:
+    name: platito-backend
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5434/platito}
+    username: ${DATABASE_USERNAME:platito}
+    password: ${DATABASE_PASSWORD:platito}
+    hikari:
+      # Unqualified table names resolve to this schema. On Supabase use a schema of its own
+      # (e.g. platito): tables in public are exposed through Supabase's Data API.
+      schema: ${DATABASE_SCHEMA:public}
+      # Keep within the database's connection limit (Supabase's pooler allows only a few per client).
+      maximum-pool-size: ${DATABASE_POOL_SIZE:10}
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+    # Created on startup if missing; see DatabaseSchemaInitializer.
+    default-schema: ${DATABASE_SCHEMA:public}
+  jackson:
+    default-property-inclusion: non_null
+
+server:
+  port: ${PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+platito:
+  # Must match AUTH_SECRET in the Next.js app; the backend verifies its session tokens.
+  auth-secret: ${AUTH_SECRET:}
+  garmin:
+    base-url: ${GARMIN_API_BASE_URL:https://personal.connectapi.garmin.com}
+    # Base64 encoding of 32 random bytes; encrypts stored Garmin API keys.
+    api-key-encryption-key: ${GARMIN_API_KEY_ENCRYPTION_KEY:}
+    sync-enabled: ${GARMIN_SYNC_ENABLED:true}
+    sync-cron: ${GARMIN_SYNC_CRON:0 */30 * * * *}
+    # Stored summaries for today and yesterday older than this are refreshed on read.
+    summary-freshness: 10m
+    backfill-days: 7
+  sheets:
+    # Daily one-way sync from the Google Sheet the app used to store its data in.
+    sync-enabled: ${SHEETS_SYNC_ENABLED:false}
+    sync-cron: ${SHEETS_SYNC_CRON:0 0 12 * * *}
+    zone: ${SHEETS_SYNC_ZONE:UTC}
+    spreadsheet-id: ${GOOGLE_SHEET_ID:}
+    service-account-email: ${GOOGLE_SERVICE_ACCOUNT_EMAIL:}
+    # PEM private key of the service account; literal \n sequences are accepted.
+    private-key: ${GOOGLE_PRIVATE_KEY:}
+    base-url: https://sheets.googleapis.com
+  admin:
+    # Login for the admin page at /admin; it answers 404 unless both are set.
+    username: ${ADMIN_USERNAME:}
+    password: ${ADMIN_PASSWORD:}
